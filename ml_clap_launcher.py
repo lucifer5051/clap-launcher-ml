@@ -8,6 +8,14 @@ import pyaudio
 import librosa
 import subprocess
 import webbrowser
+from scipy.signal import butter, lfilter
+
+# Low-frequency cutoff (400Hz) surgically deletes PC fan/HDD/Chassis hum
+def highpass_filter(data, cutoff=400, fs=44100, order=5):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='high', analog=False)
+    return lfilter(b, a, data)
 
 # Load the trained 95%+ precision machine learning model
 try:
@@ -96,6 +104,9 @@ def extract_features_from_buffer(audio_buffer):
     # Flatten buffer
     y = np.concatenate(audio_buffer).astype(np.float32) / 32768.0 
     
+    # APPLY HIGH-PASS FILTER: Strip all internal PC noise
+    y = highpass_filter(y)
+    
     # ISOLATE SPIKE FIRST
     spike = isolate_spike(y, RATE)
     
@@ -129,10 +140,13 @@ def main():
             audio_data = np.frombuffer(data, dtype=np.int16)
             buffer.append(audio_data)
             
-            rms_volume = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
+            # Filter chunk to check for external volume only
+            filtered_data = highpass_filter(audio_data.astype(np.float32))
+            rms_volume = np.sqrt(np.mean(np.square(filtered_data)))
             current_time = time.time()
             
-            if rms_volume > 800 and current_time > cooldown_until: 
+            # Max Rejection: 2000 threshold only accepts loud, external physical snaps
+            if rms_volume > 2000 and current_time > cooldown_until: 
                 X = extract_features_from_buffer(buffer)
                 
                 probs = clf.predict_proba(X)[0]
