@@ -7,7 +7,7 @@ By default, the script will silently listen in the background and instantly open
 ## 🚀 Features
 * **AI Powered**: Uses `scikit-learn` and `librosa` MFCC audio extraction to understand the mathematical shape of a true clap, easily ignoring desk bumps, coughs, and heavy mechanical keyboard typing.
 * **Insanely Fast**: Calibrated to recognize rapid double-claps with less than 0.01 seconds required between claps.
-* **Built in Trainer UI**: Comes with a fully standalone offline HTML5 Web Audio interface (`trainer_ui.html`) allowing anyone to easily record and label their own audio dataset to train a custom room-specific model!
+* **Pre-Trained Brain**: Comes pre-loaded with a highly robust `clap_model.pkl` model honed against heavy ambient noise, meaning it works brilliantly out of the box with zero training required.
 * **Low CPU Overhead**: Uses a mathematical basic volume tripwire (`rms > 250`) to sleep the system until a loud noise actually occurs, ensuring your CPU isn't wasting cycles running ML inference on silence.
 
 ---
@@ -31,20 +31,6 @@ By default, the script will silently listen in the background and instantly open
    ```bash
    python ml_clap_launcher.py
    ```
-   *(It will load the pre-trained `clap_model.pkl` brain immediately and start listening!)*
+   *(It will load the pre-trained `clap_model.pkl` brain immediately and seamlessly start listening in the background!)*
 
 ---
-
-## 🎧 Want to train your own custom model?
-If the pre-trained model gives you false positives for your specific room, you can rebuild the AI entirely from scratch in 5 minutes!
-
-1. Open `trainer_ui.html` in Google Chrome or Microsoft Edge.
-2. The browser will ask for microphone permission. Click **Allow**.
-3. Record ~100 **Claps**, and ~100 ambient **Noise** clips (type on your keyboard, bump your desk, talk, etc).
-4. Click **Download Dataset ZIP** on the UI.
-5. Extract the downloaded `/dataset/` folder into the exact same folder as the scripts.
-6. Run the training pipeline:
-   ```bash
-   python train_model.py
-   ```
-   This will completely overwrite `clap_model.pkl` with your own highly specific acoustics! Run `ml_clap_launcher.py` and it will use your new brain.
