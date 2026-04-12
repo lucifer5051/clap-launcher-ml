@@ -21,8 +21,9 @@ FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 44100
 CHUNK = 1024
+WINDOW_SEC = 0.15 # Must match train_model.py
 WINDOW_CHUNKS = int(RATE * 0.6 / CHUNK)  # ~0.6 seconds of rolling audio buffer
-CONFIDENCE_THRESHOLD = 0.70
+CONFIDENCE_THRESHOLD = 0.95
 
 MIN_CLAP_GAP = 0.01
 MAX_CLAP_GAP = 0.3
@@ -57,21 +58,49 @@ def launch_systems():
                 
     print("[JARVIS] Done.")
 
-def extract_features_from_buffer(audio_buffer):
-    # Flatten the list of numpy chunks into a single 1D float32 array
-    # We must divide by 32768.0 to get range [-1.0, 1.0] to exactly mirror librosa.load() behavior
-    y = np.concatenate(audio_buffer).astype(np.float32) / 32768.0 
-    
-    # Needs to match exactly the features in train_model.py
-    mfccs = librosa.feature.mfcc(y=y, sr=RATE, n_mfcc=13)
+def get_feature_vector(y, sr):
+    # Match EXACTLY the logic in train_model.py
+    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
     mfccs_mean = np.mean(mfccs, axis=1)
     mfccs_std = np.std(mfccs, axis=1)
     
     zcr = np.mean(librosa.feature.zero_crossing_rate(y)[0])
     rms = np.mean(librosa.feature.rms(y=y)[0])
+
+    centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+    cent_mean = np.mean(centroid)
+    cent_std = np.std(centroid)
     
-    features = np.hstack([mfccs_mean, mfccs_std, zcr, rms])
+    bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+    band_mean = np.mean(bandwidth)
+    band_std = np.std(bandwidth)
+    
+    features = np.hstack([mfccs_mean, mfccs_std, zcr, rms, cent_mean, cent_std, band_mean, band_std])
     return features.reshape(1, -1)
+
+def isolate_spike(y, sr):
+    """Finds the absolute peak and returns a WINDOW_SEC clip around it."""
+    peak_idx = np.argmax(np.abs(y))
+    half_win = int((WINDOW_SEC / 2) * sr)
+    
+    start = max(0, peak_idx - half_win)
+    end = min(len(y), peak_idx + half_win)
+    
+    spike = y[start:end]
+    if len(spike) < half_win * 2:
+        spike = np.pad(spike, (0, (half_win * 2) - len(spike)), mode='constant')
+        
+    return spike
+
+def extract_features_from_buffer(audio_buffer):
+    # Flatten buffer
+    y = np.concatenate(audio_buffer).astype(np.float32) / 32768.0 
+    
+    # ISOLATE SPIKE FIRST
+    spike = isolate_spike(y, RATE)
+    
+    # Extract features from the spike ONLY
+    return get_feature_vector(spike, RATE)
 
 def main():
     try:
@@ -85,9 +114,8 @@ def main():
         print(f"Audio Initialization Error: {e}")
         sys.exit(1)
 
-    print("[JARVIS] ML Clap detector online. Listening...")
+    print("[JARVIS] Spike-Focused Clap detector online. Listening...")
 
-    # Set up our rolling audio buffer so the ML model can see backward in time
     buffer = collections.deque(maxlen=WINDOW_CHUNKS)
     for _ in range(WINDOW_CHUNKS):
         buffer.append(np.zeros(CHUNK, dtype=np.int16))
@@ -97,51 +125,36 @@ def main():
 
     try:
         while True:
-            # Shift buffer
             data = stream.read(CHUNK, exception_on_overflow=False)
             audio_data = np.frombuffer(data, dtype=np.int16)
             buffer.append(audio_data)
             
-            # Basic volume tripwire -> bypasses CPU heavy ML inference if room is silent
             rms_volume = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
             current_time = time.time()
             
-            if rms_volume > 250 and current_time > cooldown_until: 
-                # Spike detected, run the audio through the ML matrix
+            if rms_volume > 500 and current_time > cooldown_until: 
                 X = extract_features_from_buffer(buffer)
                 
                 probs = clf.predict_proba(X)[0]
-                clap_prob = probs[1] # Probability of class 1 (Clap)
+                clap_prob = probs[1]
                 
                 if clap_prob >= CONFIDENCE_THRESHOLD:
-                    print(f"-> Single Clap Detected | Confidence: {clap_prob*100:.1f}%")
+                    print(f"-> Spike Detected | Confidence: {clap_prob*100:.1f}%")
                     
                     time_since_last = current_time - last_clap_time
                     
                     if MIN_CLAP_GAP <= time_since_last <= MAX_CLAP_GAP:
-                        # Success Window!
                         launch_systems()
-                        
                         last_clap_time = 0
                         cooldown_until = time.time() + COOLDOWN_AFTER_FIRE
-                        
-                        # Clear old audio that built up while sleeping
-                        try:
-                            stream.read(stream.get_read_available(), exception_on_overflow=False)
-                        except:
-                            pass
-                        
-                        # Zero out sliding memory buffer to prevent hallucination double triggers
                         for _ in range(WINDOW_CHUNKS):
                             buffer.append(np.zeros(CHUNK, dtype=np.int16))
                         continue
                     else:
                         last_clap_time = current_time
 
-                    # Force a micro cooldown to prevent classifying the trailing tail-end of the same clap
                     cooldown_until = max(cooldown_until, current_time + 0.01)
                     
-            # Reset timeline if you clap once and walk away
             if last_clap_time > 0 and (current_time - last_clap_time) > 1.5:
                 last_clap_time = 0
 
