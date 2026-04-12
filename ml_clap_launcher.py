@@ -35,7 +35,7 @@ CONFIDENCE_THRESHOLD = 0.95
 
 MIN_CLAP_GAP = 0.01
 MAX_CLAP_GAP = 0.3
-COOLDOWN_AFTER_FIRE = 300.0  # 5 Minute blackout while song is playing to prevent feedback loops
+COOLDOWN_AFTER_FIRE = 120.0  # 2 Minute blackout while song is playing to prevent feedback loops
 
 def launch_systems():
     print("[JARVIS] Double clap confirmed! (>70% confidence). Launching systems in Chrome...")
