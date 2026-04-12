@@ -27,7 +27,7 @@ CONFIDENCE_THRESHOLD = 0.95
 
 MIN_CLAP_GAP = 0.01
 MAX_CLAP_GAP = 0.3
-COOLDOWN_AFTER_FIRE = 2.0
+COOLDOWN_AFTER_FIRE = 300.0  # 5 Minute blackout while song is playing to prevent feedback loops
 
 def launch_systems():
     print("[JARVIS] Double clap confirmed! (>70% confidence). Launching systems in Chrome...")
@@ -132,7 +132,7 @@ def main():
             rms_volume = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
             current_time = time.time()
             
-            if rms_volume > 500 and current_time > cooldown_until: 
+            if rms_volume > 800 and current_time > cooldown_until: 
                 X = extract_features_from_buffer(buffer)
                 
                 probs = clf.predict_proba(X)[0]
