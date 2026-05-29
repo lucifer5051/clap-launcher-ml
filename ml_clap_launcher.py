@@ -50,7 +50,7 @@ def launch_systems():
         except Exception:
             pass
         
-    time.sleep(2.0)
+    time.sleep(1.0)
     
     try:
         subprocess.Popen(["antigravity"])
